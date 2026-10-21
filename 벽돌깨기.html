@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>핑크 상어 벽돌 깨기</title>
+<style>
+  :root{--pink:#ff4fa3;--hot:#ff168b;--pale:#ffe3f1;--ink:#4b1640}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;font-family:system-ui,-apple-system,"Malgun Gothic",sans-serif;color:var(--ink);
+    background:radial-gradient(circle at 15% 10%,#fff 0,#fff0f8 35%,#ffd5eb 100%);display:flex;justify-content:center;padding:18px}
+  .wrap{width:min(100%,1000px)}
+  header{text-align:center;margin:0 0 12px}
+  h1{margin:0;font-size:clamp(1.55rem,4vw,2.5rem);color:#e91e83;text-shadow:0 2px #fff}
+  .sub{margin:5px 0 12px;color:#8c4771}
+  .hud{display:flex;justify-content:center;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+  .pill{background:#fff9;border:1px solid #ffacd3;border-radius:999px;padding:8px 14px;font-weight:700;box-shadow:0 3px 12px #ff78b51c}
+  button{border:0;border-radius:999px;padding:10px 17px;font:700 1rem inherit;font-weight:800;cursor:pointer;color:white;background:linear-gradient(135deg,#ff69b4,#e91e83);box-shadow:0 4px 0 #b91569;transition:transform .1s}
+  button:active{transform:translateY(2px);box-shadow:0 2px 0 #b91569}
+  button.secondary{background:linear-gradient(135deg,#b77bff,#8750dc);box-shadow:0 4px 0 #6833b2}
+  .board{position:relative;border:3px solid #ff80bb;border-radius:22px;overflow:hidden;box-shadow:0 12px 35px #dc438533;background:#fff}
+  canvas{display:block;width:100%;height:auto;touch-action:none}
+  .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;background:#fff3f9b8;backdrop-filter:blur(3px)}
+  .overlay.hidden{display:none}
+  .panel{max-width:440px;padding:24px 28px;border-radius:22px;background:#fffdfd;border:2px solid #ff9bca;box-shadow:0 10px 30px #e83c9430}
+  .panel h2{margin:0 0 8px;color:#e91e83}
+  .panel p{line-height:1.55;margin:8px 0 16px}
+  .hint{text-align:center;color:#8d4a72;font-size:.9rem;margin:12px 0 0}
+  @media(max-width:600px){body{padding:10px}.pill{padding:7px 10px;font-size:.9rem}.panel{padding:18px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>🦈 핑크 상어 벽돌 깨기</h1><p class="sub">상어를 움직여 벽돌을 깨고 바다를 핑크빛으로 물들여 봐!</p></header>
+  <div class="hud">
+    <span class="pill">점수 <span id="score">0</span></span>
+    <span class="pill">상어 <span id="sharkCount">1</span>마리</span>
+    <span class="pill">오늘 서울 <span id="weather">불러오는 중…</span></span>
+    <button id="startBtn">▶ 게임 시작</button>
+    <button id="pauseBtn" class="secondary">Ⅱ 일시정지</button>
+    <button id="resetBtn">↻ 다시 시작</button>
+    <button id="weatherBtn" class="secondary">날씨 새로고침</button>
+  </div>
+  <div class="board">
+    <canvas id="game" width="960" height="600" aria-label="핑크 상어 벽돌 깨기 게임"></canvas>
+    <div class="overlay" id="overlay"><div class="panel"><h2 id="overlayTitle">준비됐어? 🦈</h2><p id="overlayText">게임 시작을 누르면 상어가 출발해! 마우스·터치 또는 ← → 키로 분홍색 패들을 움직여 봐.</p><button id="overlayStart">▶ 게임 시작</button></div></div>
+  </div>
+  <p class="hint">조작: 마우스 / 터치 / ← → 방향키 · 벽돌마다 필요한 타격 수가 1~30회로 달라져요.</p>
+</div>
+<script>
+(() => {
+ const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+ const $=id=>document.getElementById(id);
+ const W=canvas.width,H=canvas.height;
+ let score=0,sharkCount=1,bricks=[],balls=[],particles=[],ripples=[],running=false,paused=false,gameOver=false;
+ let paddle={x:W/2-65,y:H-42,w:130,h:15},keys={left:false,right:false},last=0;
+ const rand=(a,b)=>Math.random()*(b-a)+a;
+ function makeBricks(){
+   bricks=[]; const cols=10,rows=5,gap=8,left=32,top=48,bw=(W-left*2-gap*(cols-1))/cols,bh=25;
+   const colors=['#ff66b3','#ff8fc8','#f94b9f','#ffb4d9','#e94e9c'];
+   for(let r=0;r<rows;r++)for(let c=0;c<cols;c++)bricks.push({x:left+c*(bw+gap),y:top+r*(bh+gap),w:bw,h:bh,hp:Math.floor(rand(1,31)),max:0,color:colors[r%colors.length],alive:true});
+   bricks.forEach(b=>b.max=b.hp);
+ }
+ function reset(){score=0;sharkCount=1;balls=[];particles=[];ripples=[];gameOver=false;running=false;paused=false;paddle.x=W/2-paddle.w/2;
+   balls.push({x:W/2,y:H-75,vx:3.1,vy:-4.1,r:8,trail:[]});makeBricks();updateHud();showOverlay('準備됐어? 🦈','게임 시작을 누르면 상어가 출발해! 마우스·터치 또는 ← → 키로 분홍색 패들을 움직여 봐.');draw();}
+ function updateHud(){$('score').textContent=score;$('sharkCount').textContent=sharkCount;}
+ function showOverlay(title,text){$('overlayTitle').textContent=title;$('overlayText').textContent=text;$('overlay').classList.remove('hidden');}
+ function hideOverlay(){$('overlay').classList.add('hidden');}
+ function start(){if(gameOver)reset();running=true;paused=false;hideOverlay();last=performance.now();requestAnimationFrame(loop);}
+ function pause(){if(!running)return;paused=!paused;if(paused){running=false;showOverlay('잠깐 쉬어 가자!','계속하려면 아래 버튼이나 게임 시작 버튼을 눌러 줘.');$('overlayStart').textContent='▶ 계속하기';}else start();}
+ function drawShark(x,y,scale,angle=0){
+   ctx.save();ctx.translate(x,y);ctx.rotate(angle);ctx.scale(scale,scale);
+   ctx.shadowColor='#ff1e9a';ctx.shadowBlur=13;
+   // tail
+   ctx.fillStyle='#ff4fa3';ctx.beginPath();ctx.moveTo(-12,0);ctx.lineTo(-24,-12);ctx.lineTo(-21,0);ctx.lineTo(-24,12);ctx.closePath();ctx.fill();
+   // body
+   ctx.fillStyle='#ff70b8';ctx.strokeStyle='#e91e83';ctx.lineWidth=1.5;
+   ctx.beginPath();ctx.moveTo(-16,0);ctx.quadraticCurveTo(-7,-12,8,-8);ctx.quadraticCurveTo(18,-5,22,0);ctx.lineTo(12,5);ctx.quadraticCurveTo(-4,12,-16,0);ctx.fill();ctx.stroke();
+   // dorsal fin
+   ctx.beginPath();ctx.moveTo(-2,-7);ctx.lineTo(3,-17);ctx.lineTo(9,-6);ctx.closePath();ctx.fill();ctx.stroke();
+   // lower fin
+   ctx.beginPath();ctx.moveTo(-1,7);ctx.lineTo(4,14);ctx.lineTo(8,6);ctx.closePath();ctx.fill();
+   // gills and eye
+   ctx.shadowBlur=0;ctx.strokeStyle='#c21870';ctx.lineWidth=1;
+   for(let i=0;i<3;i++){ctx.beginPath();ctx.moveTo(6+i*3,-3);ctx.lineTo(5+i*3,3);ctx.stroke();}
+   ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(13,-3,2.3,0,Math.PI*2);ctx.fill();ctx.fillStyle='#58103b';ctx.beginPath();ctx.arc(13.5,-3,1,0,Math.PI*2);ctx.fill();
+   ctx.restore();
+ }
+ function draw(){
+   ctx.clearRect(0,0,W,H);
+   const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#fff7fc');bg.addColorStop(1,'#ffd9ed');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+   // bubbles
+   for(let i=0;i<22;i++){let x=(i*97+30)%W,y=(i*61+20)%H;ctx.strokeStyle='#ff9ccc66';ctx.lineWidth=2;ctx.beginPath();ctx.arc(x,y,3+(i%4),0,Math.PI*2);ctx.stroke();}
+   bricks.forEach(b=>{if(!b.alive)return;ctx.save();ctx.shadowColor=b.color;ctx.shadowBlur=7;ctx.fillStyle=b.color;roundRect(b.x,b.y,b.w,b.h,7,true);ctx.shadowBlur=0;ctx.strokeStyle='#fff7fc';ctx.lineWidth=2;roundRect(b.x,b.y,b.w,b.h,7,false,true);ctx.fillStyle='#8c174f';ctx.font='bold 12px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(b.hp,b.x+b.w/2,b.y+b.h/2);ctx.restore();});
+   ripples.forEach(p=>{ctx.beginPath();ctx.strokeStyle=`rgba(255,30,150,${p.life})`;ctx.lineWidth=3;ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.stroke();});
+   particles.forEach(p=>{ctx.globalAlpha=Math.max(0,p.life);ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();});ctx.globalAlpha=1;
+   // paddle
+   ctx.save();ctx.shadowColor='#ff168b';ctx.shadowBlur=18;let gr=ctx.createLinearGradient(paddle.x,0,paddle.x+paddle.w,0);gr.addColorStop(0,'#ff9dce');gr.addColorStop(.5,'#ff168b');gr.addColorStop(1,'#ff9dce');ctx.fillStyle=gr;roundRect(paddle.x,paddle.y,paddle.w,paddle.h,9,true);ctx.restore();
+   balls.forEach(b=>{b.trail.forEach((t,i)=>{ctx.globalAlpha=(i/b.trail.length)*.6;ctx.fillStyle='#ff2f9a';ctx.beginPath();ctx.arc(t.x,t.y,Math.max(1,b.r*i/b.trail.length),0,Math.PI*2);ctx.fill();});ctx.globalAlpha=1;drawShark(b.x,b.y,1.45,Math.atan2(b.vy,b.vx)*.15);});
+ }
+ function roundRect(x,y,w,h,r,fill,stroke=false){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);if(fill)ctx.fill();if(stroke)ctx.stroke();}
+ function burst(x,y){for(let i=0;i<18;i++)particles.push({x,y,vx:rand(-3,3),vy:rand(-3,3),r:rand(2,5),life:1,color:['#ff168b','#ff8fc8','#fff','#d96bff'][i%4]});ripples.push({x,y,r:5,life:1});}
+ function loop(now){if(!running)return;let dt=Math.min((now-last)/16.67,2);last=now;update(dt);draw();if(running)requestAnimationFrame(loop);}
+ function update(dt){
+   if(keys.left)paddle.x-=7*dt;if(keys.right)paddle.x+=7*dt;paddle.x=Math.max(0,Math.min(W-paddle.w,paddle.x));
+   balls.forEach((b,idx)=>{
+     b.trail.push({x:b.x,y:b.y});if(b.trail.length>15)b.trail.shift();
+     b.x+=b.vx*dt;b.y+=b.vy*dt;
+     if(b.x<b.r){b.x=b.r;b.vx=Math.abs(b.vx);}if(b.x>W-b.r){b.x=W-b.r;b.vx=-Math.abs(b.vx);}if(b.y<b.r){b.y=b.r;b.vy=Math.abs(b.vy);}
+     if(b.vy>0&&b.y+b.r>=paddle.y&&b.y-b.r<=paddle.y+paddle.h&&b.x>=paddle.x&&b.x<=paddle.x+paddle.w){b.y=paddle.y-b.r;b.vy=-Math.abs(b.vy);b.vx+=((b.x-(paddle.x+paddle.w/2))/(paddle.w/2))*1.2;}
+     for(const brick of bricks){if(!brick.alive)continue;if(b.x+b.r>brick.x&&b.x-b.r<brick.x+brick.w&&b.y+b.r>brick.y&&b.y-b.r<brick.y+brick.h){
+       brick.hp--;b.vy*=-1;if(brick.hp<=0){brick.alive=false;score+=10;sharkCount++;burst(brick.x+brick.w/2,brick.y+brick.h/2);
+         // add a new shark-ball for each destroyed brick, with slightly higher speed
+         const speed=Math.min(8,Math.hypot(b.vx,b.vy)*1.03);let a=rand(-2.5,-0.65);balls.push({x:b.x,y:b.y,vx:Math.cos(a)*speed,vy:Math.sin(a)*speed,r:8,trail:[]});
+         const sp=Math.hypot(b.vx,b.vy)*1.03,sg=Math.sign(b.vx)||1;b.vx=sg*Math.sqrt(Math.max(4,sp*sp-b.vy*b.vy));const mag=Math.hypot(b.vx,b.vy);if(mag>8){b.vx=b.vx/mag*8;b.vy=b.vy/mag*8;}
+         updateHud();
+       }break;
+     }}
+   });
+   balls=balls.filter(b=>b.y<H+25);
+   particles.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=.025*dt;});particles=particles.filter(p=>p.life>0);
+   ripples.forEach(p=>{p.r+=2.8*dt;p.life-=.025*dt;});ripples=ripples.filter(p=>p.life>0);
+   if(!bricks.some(b=>b.alive)){running=false;gameOver=true;showOverlay('완벽해! 🎉','모든 벽돌을 부쉈어! 최종 점수: '+score);$('overlayStart').textContent='다시 플레이';}
+   if(!balls.length){running=false;gameOver=true;showOverlay('아쉽다! 💗','점수 '+score+'점! 다시 시작해서 재도전해 봐.');$('overlayStart').textContent='다시 플레이';}
+ }
+ canvas.addEventListener('pointermove',e=>{const r=canvas.getBoundingClientRect();paddle.x=(e.clientX-r.left)/r.width*W-paddle.w/2;paddle.x=Math.max(0,Math.min(W-paddle.w,paddle.x));if(!running)draw();});
+ canvas.addEventListener('pointerdown',e=>{canvas.setPointerCapture?.(e.pointerId);});
+ window.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight'].includes(e.key))e.preventDefault();if(e.key==='ArrowLeft')keys.left=true;if(e.key==='ArrowRight')keys.right=true;if(e.code==='Space'){e.preventDefault();if(!running)start();else pause();}});
+ window.addEventListener('keyup',e=>{if(e.key==='ArrowLeft')keys.left=false;if(e.key==='ArrowRight')keys.right=false;});
+ $('startBtn').onclick=start;$('overlayStart').onclick=start;$('pauseBtn').onclick=pause;$('resetBtn').onclick=reset;
+ async function weather(){ $('weather').textContent='불러오는 중…';try{const r=await fetch('https://api.open-meteo.com/v1/forecast?latitude=37.5665&longitude=126.9780&current=temperature_2m&timezone=Asia%2FSeoul');if(!r.ok)throw Error();const d=await r.json();const t=d.current?.temperature_2m;if(typeof t!=='number')throw Error();$('weather').textContent=Math.round(t)+'°C';}catch(e){$('weather').textContent='날씨 정보를 불러올 수 없어요';}}
+ $('weatherBtn').onclick=weather;
+ makeBricks();reset();weather();
+})();
+</script>
+</body>
+</html>
